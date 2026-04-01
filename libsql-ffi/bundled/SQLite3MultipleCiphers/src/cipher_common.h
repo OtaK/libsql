@@ -56,6 +56,9 @@
 
 #define CODEC_SHA_ITER 4001
 
+/* Restrict possible plaintext header size to db header size */
+#define PLAINTEXT_HEADER_MAX 100
+
 typedef struct _CodecParameter
 {
   char* m_name;
@@ -87,6 +90,7 @@ typedef struct _Codec
   unsigned char m_page[SQLITE_MAX_PAGE_SIZE + 24];
   int           m_pageSize;
   int           m_reserved;
+  int           m_lastError;
   int           m_hasKeySalt;
   unsigned char m_keySalt[KEYSALT_LENGTH];
 } Codec;
@@ -158,6 +162,9 @@ SQLITE_PRIVATE int sqlite3mcGetReservedWriteCipher(Codec* codec);
 
 SQLITE_PRIVATE int sqlite3mcReservedEqual(Codec* codec);
 
+SQLITE_PRIVATE void sqlite3mcSetCodecLastError(Codec* codec, int error);
+SQLITE_PRIVATE int sqlite3mcGetCodecLastError(Codec* codec);
+
 SQLITE_PRIVATE unsigned char* sqlite3mcGetSaltWriteCipher(Codec* codec);
 
 SQLITE_PRIVATE int sqlite3mcCodecCopy(Codec* codec, Codec* other);
@@ -187,6 +194,10 @@ SQLITE_PRIVATE int sqlite3mcIsHexKey(const unsigned char* hex, int len);
 SQLITE_PRIVATE int sqlite3mcConvertHex2Int(char c);
 
 SQLITE_PRIVATE void sqlite3mcConvertHex2Bin(const unsigned char* hex, int len, unsigned char* bin);
+
+SQLITE_PRIVATE int sqlite3mcExtractRawKey(const char* password, int passwordLength,
+                                          int keyOnly, int keyLength, int saltLength,
+                                          unsigned char* key, unsigned char* salt);
 
 SQLITE_PRIVATE int sqlite3mcConfigureFromUri(sqlite3* db, const char *zDbName, int configDefault);
 

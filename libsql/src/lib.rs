@@ -18,44 +18,7 @@
 //! conn.execute("INSERT INTO users (email) VALUES ('alice@example.org')", ()).await.unwrap();
 //! # }
 //! ```
-//!
-//! ## Embedded Replicas
-//!
-//! Embedded replica is libSQL database that's running in your application process, which keeps a local copy of a remote database.
-//! They are useful if you want to move data in the memory space of your application for fast access.
-//!
-//! You can open an embedded read-only replica by using the [`Database::open_with_local_sync`] constructor:
-//!
-//! ```rust,no_run
-//! # async fn run() {
-//! use libsql::Builder;
-//! use libsql::replication::Frames;
-//!
-//! let mut db = Builder::new_local_replica("/tmp/test.db").build().await.unwrap();
-//!
-//! let frames = Frames::Vec(vec![]);
-//! db.sync_frames(frames).await.unwrap();
-//! let conn = db.connect().unwrap();
-//! conn.execute("SELECT * FROM users", ()).await.unwrap();
-//! # }
-//! ```
-//!
-//! ## Remote database
-//!
-//! It is also possible to create a libsql connection that does not open a local database but
-//! instead sends queries to a remote database.
-//!
-//! ```rust,no_run
-//! # async fn run() {
-//! use libsql::Builder;
-//!
-//! let db = Builder::new_remote("libsql://my-remote-db.com".to_string(), "my-auth-token".to_string()).build().await.unwrap();
-//! let conn = db.connect().unwrap();
-//! conn.execute("CREATE TABLE IF NOT EXISTS users (email TEXT)", ()).await.unwrap();
-//! conn.execute("INSERT INTO users (email) VALUES ('alice@example.org')", ()).await.unwrap();
-//! # }
-//! ```
-//!
+
 //! ## WASM
 //!
 //! Due to WASM requiring `!Send` support and the [`Database`] type supporting async and using
@@ -75,7 +38,7 @@
 //! flags may be used by including the libsql crate like:
 //!
 //! ```toml
-//! libsql = { version = "*", default-features = false, features = ["core", "replication", "remote" ]
+//! libsql = { version = "*", default-features = false, features = ["core", "serde" ]
 //! ```
 //!
 //! By default, all the features are enabled but by providing `default-features = false` it will
@@ -83,37 +46,9 @@
 //!
 //! The features are descirbed like so:
 //! - `core` this includes the core C code that backs both the basic local database usage and
-//! embedded replica features.
-//! - `replication` this feature flag includes the `core` feature flag and adds on top HTTP code
-//! that will allow you to sync you remote database locally.
-//! - `remote` this feature flag only includes HTTP code that will allow you to run queries against
-//! a remote database.
-//! - `tls` this feature flag disables the builtin TLS connector and instead requires that you pass
-//! your own connector for any of the features that require HTTP.
+//!   embedded replica features.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![cfg_attr(
-    all(
-        any(
-            not(feature = "remote"),
-            not(feature = "replication"),
-            not(feature = "core")
-        ),
-        feature = "tls"
-    ),
-    allow(unused_imports)
-)]
-#![cfg_attr(
-    all(
-        any(
-            not(feature = "remote"),
-            not(feature = "replication"),
-            not(feature = "core")
-        ),
-        feature = "tls"
-    ),
-    allow(dead_code)
-)]
 
 #[macro_use]
 mod macros;
@@ -129,26 +64,9 @@ cfg_core! {
 
 pub mod params;
 
-cfg_sync! {
-    mod sync;
-    pub use database::SyncProtocol;
-    pub use database::EncryptionContext;
-    pub use database::EncryptionKey;
-}
-
-cfg_replication! {
-    pub mod replication;
-}
-
 cfg_core! {
     pub use libsql_sys::ffi;
 }
-
-cfg_wasm! {
-    pub mod wasm;
-}
-
-mod util;
 
 pub mod errors;
 pub use errors::Error;
@@ -160,10 +78,6 @@ mod connection;
 mod database;
 mod load_extension_guard;
 
-cfg_parser! {
-    mod parser;
-}
-
 mod rows;
 mod statement;
 mod transaction;
@@ -173,10 +87,6 @@ mod value;
 pub mod de;
 
 pub use value::{Value, ValueRef, ValueType};
-
-cfg_hrana! {
-    mod hrana;
-}
 
 pub use self::{
     auth::{AuthAction, AuthContext, Authorization},

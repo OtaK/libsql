@@ -29,9 +29,6 @@ pub struct Connection {
 
     drop_ref: Arc<()>,
 
-    #[cfg(feature = "replication")]
-    pub(crate) writer: Option<crate::replication::Writer>,
-
     authorizer: Arc<RwLock<Option<AuthHook>>>,
 }
 
@@ -73,18 +70,9 @@ impl Connection {
         let conn = Connection {
             raw,
             drop_ref: Arc::new(()),
-            #[cfg(feature = "replication")]
-            writer: db.writer()?,
             authorizer: Arc::new(RwLock::new(None)),
         };
-        #[cfg(feature = "sync")]
-        if let Some(_) = db.sync_ctx {
-            // We need to make sure database is in WAL mode with checkpointing
-            // disabled so that we can sync our changes back to a remote
-            // server.
-            conn.query("PRAGMA journal_mode = WAL", Params::None)?;
-            conn.wal_disable_checkpoint()?;
-        }
+
         Ok(conn)
     }
 
@@ -98,8 +86,6 @@ impl Connection {
         Self {
             raw,
             drop_ref: Arc::new(()),
-            #[cfg(feature = "replication")]
-            writer: None,
             authorizer: Arc::new(RwLock::new(None)),
         }
     }
@@ -113,7 +99,7 @@ impl Connection {
 
     /// Prepare the SQL statement.
     pub fn prepare<S: Into<String>>(&self, sql: S) -> Result<Statement> {
-        Statement::prepare(self.clone(), self.raw, sql.into().as_str())
+        Statement::prepare(self.clone(), self.raw, sql.into())
     }
 
     /// Convenience method to run a prepared statement query.
@@ -132,11 +118,11 @@ impl Connection {
         P: TryInto<Params>,
         P::Error: Into<crate::BoxError>,
     {
-        let stmt = Statement::prepare(self.clone(), self.raw, sql.into().as_str())?;
+        let stmt = Statement::prepare(self.clone(), self.raw, sql.into())?;
         let params = params
             .try_into()
             .map_err(|e| Error::ToSqlConversionFailure(e.into()))?;
-        let ret = stmt.query(&params)?;
+        let ret = stmt.query(&params);
         Ok(Some(ret))
     }
 
@@ -168,7 +154,6 @@ impl Connection {
     {
         let sql = sql.into();
         let mut sql = sql.as_str();
-
         let mut batch_rows = Vec::new();
 
         while !sql.is_empty() {
@@ -267,7 +252,7 @@ impl Connection {
         let sql = sql.into();
         let mut sql = sql.as_str();
         while !sql.is_empty() {
-            let stmt = self.prepare(sql)?;
+            let stmt = self.prepare(sql.to_string())?;
 
             let tail = stmt.tail();
             let stmt_sql = if tail == 0 || tail >= sql.len() {
@@ -331,7 +316,8 @@ impl Connection {
         P: TryInto<Params>,
         P::Error: Into<crate::BoxError>,
     {
-        let stmt = Statement::prepare(self.clone(), self.raw, sql.into().as_str())?;
+        let sql = sql.into();
+        let stmt = Statement::prepare(self.clone(), self.raw, sql)?;
         let params = params
             .try_into()
             .map_err(|e| Error::ToSqlConversionFailure(e.into()))?;
@@ -392,19 +378,6 @@ impl Connection {
 
     pub fn last_insert_rowid(&self) -> i64 {
         unsafe { ffi::sqlite3_last_insert_rowid(self.raw) }
-    }
-
-    #[cfg(feature = "replication")]
-    pub(crate) fn writer(&self) -> Option<&crate::replication::Writer> {
-        self.writer.as_ref()
-    }
-
-    #[cfg(feature = "replication")]
-    pub(crate) fn new_connection_writer(&self) -> Option<crate::replication::Writer> {
-        self.writer.as_ref().cloned().map(|mut w| {
-            w.new_client_id();
-            w
-        })
     }
 
     /// Installs update hook
@@ -556,114 +529,6 @@ impl Connection {
         Ok(())
     }
 
-    pub(crate) fn wal_frame_count(&self) -> u32 {
-        let mut max_frame_no: std::os::raw::c_uint = 0;
-        unsafe { libsql_sys::ffi::libsql_wal_frame_count(self.handle(), &mut max_frame_no) };
-
-        max_frame_no
-    }
-
-    pub(crate) fn wal_get_frame(&self, frame_no: u32, page_size: u32) -> Result<bytes::BytesMut> {
-        use bytes::BufMut;
-
-        let frame_size: usize = 24 + page_size as usize;
-
-        // Use a BytesMut to provide cheaper clones of frame data (think retries)
-        // and more efficient buffer usage for extracting wal frames and spliting them off.
-        let mut buf = bytes::BytesMut::with_capacity(frame_size);
-
-        if frame_no == 0 {
-            return Err(errors::Error::SqliteFailure(
-                1,
-                "frame_no must be non-zero".to_string(),
-            ));
-        }
-
-        let rc = unsafe {
-            libsql_sys::ffi::libsql_wal_get_frame(
-                self.handle(),
-                frame_no,
-                buf.chunk_mut().as_mut_ptr() as *mut _,
-                frame_size as u32,
-            )
-        };
-
-        if rc != 0 {
-            return Err(crate::errors::Error::SqliteFailure(
-                rc as std::ffi::c_int,
-                format!("Failed to get frame: {}", frame_no),
-            ));
-        }
-
-        unsafe { buf.advance_mut(frame_size) };
-
-        Ok(buf)
-    }
-
-    fn wal_disable_checkpoint(&self) -> Result<()> {
-        let rc = unsafe { libsql_sys::ffi::libsql_wal_disable_checkpoint(self.handle()) };
-        if rc != 0 {
-            return Err(crate::errors::Error::SqliteFailure(
-                rc as std::ffi::c_int,
-                format!("wal_disable_checkpoint failed"),
-            ));
-        }
-        Ok(())
-    }
-    fn wal_insert_begin(&self) -> Result<()> {
-        let rc = unsafe { libsql_sys::ffi::libsql_wal_insert_begin(self.handle()) };
-        if rc != 0 {
-            return Err(crate::errors::Error::SqliteFailure(
-                rc as std::ffi::c_int,
-                format!("wal_insert_begin failed"),
-            ));
-        }
-        Ok(())
-    }
-
-    fn wal_insert_end(&self) -> Result<()> {
-        let rc = unsafe { libsql_sys::ffi::libsql_wal_insert_end(self.handle()) };
-        if rc != 0 {
-            return Err(crate::errors::Error::SqliteFailure(
-                rc as std::ffi::c_int,
-                format!("wal_insert_end failed"),
-            ));
-        }
-        Ok(())
-    }
-
-    fn wal_insert_frame(&self, frame_no: u32, frame: &[u8]) -> Result<()> {
-        let mut conflict = 0i32;
-        let rc = unsafe {
-            libsql_sys::ffi::libsql_wal_insert_frame(
-                self.handle(),
-                frame_no,
-                frame.as_ptr() as *mut std::ffi::c_void,
-                frame.len() as u32,
-                &mut conflict,
-            )
-        };
-
-        if conflict != 0 {
-            return Err(errors::Error::WalConflict);
-        }
-        if rc != 0 {
-            return Err(errors::Error::SqliteFailure(
-                rc as std::ffi::c_int,
-                "wal_insert_frame failed".to_string(),
-            ));
-        }
-
-        Ok(())
-    }
-
-    pub(crate) fn wal_insert_handle(&self) -> WalInsertHandle<'_> {
-        WalInsertHandle {
-            conn: self,
-            in_session: RwLock::new(false),
-        }
-    }
-
     fn reserved_bytes(&self, reserve: Option<i32>) -> Result<i32> {
         let mut reserve_value = reserve.unwrap_or(0) as std::ffi::c_int;
         let rc = unsafe {
@@ -741,47 +606,6 @@ unsafe extern "C" fn authorizer_callback(
     }
 }
 
-pub(crate) struct WalInsertHandle<'a> {
-    conn: &'a Connection,
-    in_session: RwLock<bool>,
-}
-
-impl WalInsertHandle<'_> {
-    pub fn insert_at(&self, frame_no: u32, frame: &[u8]) -> Result<()> {
-        assert!(*self.in_session.read());
-        self.conn.wal_insert_frame(frame_no, frame)
-    }
-
-    pub fn in_session(&self) -> bool {
-        *self.in_session.read()
-    }
-
-    pub fn begin(&self) -> Result<()> {
-        assert!(!*self.in_session.read());
-        self.conn.wal_insert_begin()?;
-        *self.in_session.write() = true;
-        Ok(())
-    }
-
-    pub fn end(&self) -> Result<()> {
-        assert!(*self.in_session.read());
-        self.conn.wal_insert_end()?;
-        *self.in_session.write() = false;
-        Ok(())
-    }
-}
-
-impl Drop for WalInsertHandle<'_> {
-    fn drop(&mut self) {
-        if *self.in_session.read() {
-            if let Err(err) = self.conn.wal_insert_end() {
-                tracing::error!("{:?}", err);
-                Err(err).unwrap()
-            }
-        }
-    }
-}
-
 impl fmt::Debug for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection").finish()
@@ -817,50 +641,6 @@ mod tests {
         params::Params,
         OpenFlags,
     };
-
-    #[tokio::test]
-    pub async fn test_kek() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let path1 = temp_dir.path().join("local1.db");
-        let db1 = Database::new(path1.to_str().unwrap().to_string(), OpenFlags::default());
-        let conn1 = Connection::connect(&db1).unwrap();
-        conn1
-            .query("PRAGMA journal_mode = WAL", Params::None)
-            .unwrap();
-        conn1.wal_disable_checkpoint().unwrap();
-
-        let path2 = temp_dir.path().join("local2.db");
-        let db2 = Database::new(path2.to_str().unwrap().to_string(), OpenFlags::default());
-        let conn2 = Connection::connect(&db2).unwrap();
-        conn2
-            .query("PRAGMA journal_mode = WAL", Params::None)
-            .unwrap();
-        conn2.wal_disable_checkpoint().unwrap();
-
-        conn1.execute("CREATE TABLE t(x)", Params::None).unwrap();
-        const CNT: usize = 32;
-        for _ in 0..CNT {
-            conn1
-                .execute(
-                    "INSERT INTO t VALUES (randomblob(1024 * 1024))",
-                    Params::None,
-                )
-                .unwrap();
-        }
-        let handle = conn2.wal_insert_handle();
-        handle.begin().unwrap();
-
-        let frame_count = conn1.wal_frame_count();
-        for frame_no in 0..frame_count {
-            let frame = conn1.wal_get_frame(frame_no + 1, 4096).unwrap();
-            handle.insert_at(frame_no as u32 + 1, &frame).unwrap();
-        }
-        let result = conn2.query("SELECT COUNT(*) FROM t", Params::None).unwrap();
-        let row = result.unwrap().next().unwrap().unwrap();
-        let column = row.get_value(0).unwrap();
-        let cnt = *column.as_integer().unwrap();
-        assert_eq!(cnt, 32 as i64);
-    }
 
     #[tokio::test]
     pub async fn test_reserved_bytes() {

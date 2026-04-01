@@ -16,15 +16,12 @@
 
 #include <assert.h>
 #include <string.h>
-#if defined(__GNUC__) && !defined(__MINGW32__) && !defined(__clang__) && !defined(__QNX__)
-#include <endian.h>
-#endif
 
 #include "sha1.h"
 #include "sha2.h"
 
 /* --- MSVC doesn't support C99 --- */
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
 #define restrict
 #define inline __inline
 #define _Pragma __pragma
@@ -37,23 +34,41 @@
 
 static inline void write32_be(uint32_t n, uint8_t out[4])
 {
-#if defined(__GNUC__) && __GNUC__ >= 4 && __BYTE_ORDER == __LITTLE_ENDIAN
-  *(uint32_t *)(out) = __builtin_bswap32(n);
+#if SQLITE_BYTEORDER==4321
+  memcpy(out, &n, 4);
+#elif SQLITE_BYTEORDER==1234 && GCC_VERSION>=4003000
+  u32 x = __builtin_bswap32(n);
+  memcpy(out, &x, 4);
+#elif SQLITE_BYTEORDER==1234 && MSVC_VERSION>=1300
+  u32 x = _byteswap_ulong(n);
+  memcpy(out, &x, 4);
 #else
-  out[0] = (n >> 24) & 0xff;
-  out[1] = (n >> 16) & 0xff;
-  out[2] = (n >> 8) & 0xff;
-  out[3] = n & 0xff;
+  out[0] = (n >> 24) & 0xFF;
+  out[1] = (n >> 16) & 0xFF;
+  out[2] = (n >> 8) & 0xFF;
+  out[3] = (n >> 0) & 0xFF;
 #endif
 }
 
 static inline void write64_be(uint64_t n, uint8_t out[8])
 {
-#if defined(__GNUC__) &&  __GNUC__ >= 4 && __BYTE_ORDER == __LITTLE_ENDIAN
-  *(uint64_t *)(out) = __builtin_bswap64(n);
+#if SQLITE_BYTEORDER==1234 && GCC_VERSION>=4003000
+  n = __builtin_bswap64(n);
+  memcpy(out, &n, 8);
+#elif SQLITE_BYTEORDER==1234 && MSVC_VERSION>=1300
+  n = _byteswap_uint64(n);
+  memcpy(out, &n, 8);
+#elif SQLITE_BYTEORDER==4321
+  memcpy(out, &n, 8);
 #else
-  write32_be((n >> 32) & 0xffffffff, out);
-  write32_be(n & 0xffffffff, out + 4);
+  out[0] = (n >> 56) & 0xFF;
+  out[1] = (n >> 48) & 0xFF;
+  out[2] = (n >> 40) & 0xFF;
+  out[3] = (n >> 32) & 0xFF;
+  out[4] = (n >> 24) & 0xFF;
+  out[5] = (n >> 16) & 0xFF;
+  out[6] = (n >> 8) & 0xFF;
+  out[7] = (n >> 0) & 0xFF;
 #endif
 }
 
@@ -391,6 +406,7 @@ DECL_PBKDF2(sha512,
             sha512_extract,
             sha512_xor)
 
+SQLITE_PRIVATE
 void fastpbkdf2_hmac_sha1(const uint8_t *pw, size_t npw,
                           const uint8_t *salt, size_t nsalt,
                           uint32_t iterations,
@@ -402,6 +418,7 @@ void fastpbkdf2_hmac_sha1(const uint8_t *pw, size_t npw,
 #endif
 }
 
+SQLITE_PRIVATE
 void fastpbkdf2_hmac_sha256(const uint8_t *pw, size_t npw,
                             const uint8_t *salt, size_t nsalt,
                             uint32_t iterations,
@@ -410,6 +427,7 @@ void fastpbkdf2_hmac_sha256(const uint8_t *pw, size_t npw,
   PBKDF2(sha256)(pw, npw, salt, nsalt, iterations, out, nout);
 }
 
+SQLITE_PRIVATE
 void fastpbkdf2_hmac_sha512(const uint8_t *pw, size_t npw,
                             const uint8_t *salt, size_t nsalt,
                             uint32_t iterations,
@@ -418,6 +436,7 @@ void fastpbkdf2_hmac_sha512(const uint8_t *pw, size_t npw,
   PBKDF2(sha512)(pw, npw, salt, nsalt, iterations, out, nout);
 }
 
+SQLITE_PRIVATE
 void sqlcipher_hmac(int algorithm, unsigned char* key, int nkey, unsigned char* in, int in_sz, unsigned char* in2, int in2_sz, unsigned char* out)
 {
   switch (algorithm)

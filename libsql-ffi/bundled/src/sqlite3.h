@@ -8738,10 +8738,6 @@ SQLITE_API int sqlite3_status64(
 */
 SQLITE_API int sqlite3_db_status(sqlite3*, int op, int *pCur, int *pHiwtr, int resetFlg);
 
-#ifdef LIBSQL_CUSTOM_PAGER_CODEC
-SQLITE_API void *libsql_leak_pager(sqlite3*);
-#endif
-
 /*
 ** CAPI3REF: Status Parameters for database connections
 ** KEYWORDS: {SQLITE_DBSTATUS options}

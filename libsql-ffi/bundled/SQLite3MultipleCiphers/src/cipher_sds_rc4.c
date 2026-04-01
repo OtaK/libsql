@@ -3,7 +3,7 @@
 ** Purpose:     Implementation of cipher System.Data.SQLite3 RC4
 ** Author:      Ulrich Telle
 ** Created:     2020-02-02
-** Copyright:   (c) 2006-2020 Ulrich Telle
+** Copyright:   (c) 2006-2024 Ulrich Telle
 ** License:     MIT
 */
 
@@ -65,7 +65,7 @@ static void
 FreeRC4Cipher(void* cipher)
 {
   RC4Cipher* localCipher = (RC4Cipher*) cipher;
-  memset(localCipher, 0, sizeof(RC4Cipher));
+  sqlite3mcSecureZeroMemory(localCipher, sizeof(RC4Cipher));
   sqlite3_free(localCipher);
 }
 
@@ -116,7 +116,7 @@ GetSaltRC4Cipher(void* cipher)
 }
 
 static void
-GenerateKeyRC4Cipher(void* cipher, BtShared* pBt, char* userPassword, int passwordLength, int rekey, unsigned char* cipherSalt)
+GenerateKeyRC4Cipher(void* cipher, char* userPassword, int passwordLength, int rekey, unsigned char* cipherSalt)
 {
   RC4Cipher* rc4Cipher = (RC4Cipher*) cipher;
   unsigned char digest[SHA1_DIGEST_SIZE];

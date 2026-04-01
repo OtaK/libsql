@@ -6,6 +6,10 @@
 	],
 	"include_paths": [
 		"src", "."
+	],
+	"force_include": [
+	],
+	"exclude_files": [
 	]
 }
 

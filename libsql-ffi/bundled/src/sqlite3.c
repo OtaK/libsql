@@ -9135,10 +9135,6 @@ SQLITE_API int sqlite3_status64(
 */
 SQLITE_API int sqlite3_db_status(sqlite3*, int op, int *pCur, int *pHiwtr, int resetFlg);
 
-#ifdef LIBSQL_CUSTOM_PAGER_CODEC
-SQLITE_API void *libsql_leak_pager(sqlite3*);
-#endif
-
 /*
 ** CAPI3REF: Status Parameters for database connections
 ** KEYWORDS: {SQLITE_DBSTATUS options}
@@ -24609,24 +24605,6 @@ SQLITE_PRIVATE int sqlite3LookasideUsed(sqlite3 *db, int *pHighwater){
   if( pHighwater ) *pHighwater = db->lookaside.nSlot - nInit;
   return db->lookaside.nSlot - (nInit+nFree);
 }
-
-/*
-** Hacky, and will be gone once we move WAL encryption layer
-** entirely to virtual WAL.
-** Assumes the BTree locks are already held.
-*/
-#ifdef LIBSQL_CUSTOM_PAGER_CODEC
-void *libsql_leak_pager(sqlite3 *db) {
-  int i;
-  for(i=0; i<db->nDb; i++){
-    Btree *pBt = db->aDb[i].pBt;
-    if( pBt ){
-      return sqlite3BtreePager(pBt);
-    }
-  }
-  return NULL;
-}
-#endif
 
 /*
 ** Query status information for a single database connection

@@ -13,7 +13,7 @@ use std::sync::Arc;
 /// Query result rows.
 #[derive(Debug, Clone)]
 pub struct Rows {
-    stmt: Statement,
+    pub(crate) stmt: Statement,
     err: RefCell<Option<(i32, i32, String)>>,
 }
 
@@ -102,7 +102,7 @@ impl futures::Future for RowsFuture {
         _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         let stmt = self.conn.prepare(&self.sql)?;
-        let ret = stmt.query(&self.params)?;
+        let ret = stmt.query(&self.params);
         std::task::Poll::Ready(Ok(Some(ret)))
     }
 }
@@ -228,7 +228,7 @@ impl ColumnsInner for BatchedRows {
         self.cols
             .get(idx as usize)
             .ok_or(Error::InvalidColumnIndex)
-            .map(|(_, vt)| vt.clone())
+            .map(|(_, vt)| *vt)
     }
 }
 
@@ -271,7 +271,7 @@ impl ColumnsInner for BatchedRow {
         self.cols
             .get(idx as usize)
             .ok_or(Error::InvalidColumnIndex)
-            .map(|(_, vt)| vt.clone())
+            .map(|(_, vt)| *vt)
     }
 }
 

@@ -12,7 +12,7 @@ async fn test_encryption() {
     {
         let mut db_builder = Builder::new_local(&encrypted_path);
         db_builder = db_builder.encryption_config(EncryptionConfig {
-            cipher: Cipher::Aes256Cbc,
+            cipher: Cipher::SqlCipher,
             encryption_key: "s3cR3t".into(),
         });
         let db = db_builder.build().await.unwrap();

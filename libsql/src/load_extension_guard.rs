@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use crate::connection::Conn;
+use crate::local::impls::LibsqlConnection;
 use crate::{Connection, Result};
 
 /// A guard for safely loading SQLite extensions.
@@ -12,7 +10,7 @@ use crate::{Connection, Result};
 /// conn.load_extension("uuid", None)?;
 /// ```
 pub struct LoadExtensionGuard {
-    pub(crate) conn: Arc<dyn Conn + Send + Sync>,
+    pub(crate) conn: LibsqlConnection,
 }
 
 impl LoadExtensionGuard {

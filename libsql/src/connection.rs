@@ -5,7 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::auth::{AuthContext, Authorization};
-use crate::params::{IntoParams, Params};
+use crate::local::impls::LibsqlConnection;
+use crate::params::IntoParams;
 use crate::rows::Rows;
 use crate::statement::Statement;
 use crate::transaction::Transaction;
@@ -20,57 +21,6 @@ pub enum Op {
     Insert = 0,
     Delete = 1,
     Update = 2,
-}
-
-#[async_trait::async_trait]
-pub(crate) trait Conn {
-    async fn execute(&self, sql: &str, params: Params) -> Result<u64>;
-
-    async fn execute_batch(&self, sql: &str) -> Result<BatchRows>;
-
-    async fn execute_transactional_batch(&self, sql: &str) -> Result<BatchRows>;
-
-    async fn prepare(&self, sql: &str) -> Result<Statement>;
-
-    async fn transaction(&self, tx_behavior: TransactionBehavior) -> Result<Transaction>;
-
-    fn interrupt(&self) -> Result<()>;
-
-    fn busy_timeout(&self, timeout: Duration) -> Result<()>;
-
-    fn is_autocommit(&self) -> bool;
-
-    fn changes(&self) -> u64;
-
-    fn total_changes(&self) -> u64;
-
-    fn last_insert_rowid(&self) -> i64;
-
-    async fn reset(&self);
-
-    fn set_reserved_bytes(&self, _reserved_bytes: i32) -> Result<()> {
-        Err(crate::Error::ReservedBytesNotSupported)
-    }
-
-    fn get_reserved_bytes(&self) -> Result<i32> {
-        Err(crate::Error::ReservedBytesNotSupported)
-    }
-
-    fn enable_load_extension(&self, _onoff: bool) -> Result<()> {
-        Err(crate::Error::LoadExtensionNotSupported)
-    }
-
-    fn load_extension(&self, _dylib_path: &Path, _entry_point: Option<&str>) -> Result<()> {
-        Err(crate::Error::LoadExtensionNotSupported)
-    }
-
-    fn authorizer(&self, _hook: Option<AuthHook>) -> Result<()> {
-        Err(crate::Error::AuthorizerNotSupported)
-    }
-
-    fn add_update_hook(&self, _cb: Box<dyn Fn(Op, &str, &str, i64) + Send + Sync>) -> Result<()> {
-        Err(crate::Error::UpdateHookNotSupported)
-    }
 }
 
 /// A set of rows returned from `execute_batch`/`execute_transactional_batch`. It is essentially
@@ -94,19 +44,11 @@ impl BatchRows {
         }
     }
 
-    #[cfg(any(feature = "hrana", feature = "core"))]
+    #[cfg(feature = "core")]
     pub(crate) fn new(rows: Vec<Option<Rows>>) -> Self {
         Self {
             inner: rows.into(),
             skip_last_amt: 0,
-        }
-    }
-
-    #[cfg(feature = "hrana")]
-    pub(crate) fn new_skip_last(rows: Vec<Option<Rows>>, skip_last_amt: usize) -> Self {
-        Self {
-            inner: rows.into(),
-            skip_last_amt,
         }
     }
 
@@ -131,7 +73,7 @@ impl fmt::Debug for BatchRows {
 /// A connection to some libsql database, this can be a remote one or a local one.
 #[derive(Clone)]
 pub struct Connection {
-    pub(crate) conn: Arc<dyn Conn + Send + Sync>,
+    pub(crate) conn: LibsqlConnection,
 }
 
 impl Connection {
@@ -247,10 +189,6 @@ impl Connection {
         self.conn.last_insert_rowid()
     }
 
-    pub async fn reset(&self) {
-        self.conn.reset().await
-    }
-
     pub fn set_reserved_bytes(&self, reserved_bytes: i32) -> Result<()> {
         self.conn.set_reserved_bytes(reserved_bytes)
     }
@@ -299,7 +237,7 @@ impl Connection {
         self.conn.authorizer(hook)
     }
 
-    pub fn add_update_hook(&self, cb: Box<UpdateHook>) -> Result<()> {
+    pub fn add_update_hook(&self, cb: Box<UpdateHook>) {
         self.conn.add_update_hook(cb)
     }
 }

@@ -50,8 +50,7 @@ async fn add_update_hook() {
             table: table.to_string(),
             row_id,
         });
-    }))
-    .unwrap();
+    }));
 
     let _ = conn
         .execute("INSERT INTO users (id, name) VALUES (2, 'Alice')", ())
@@ -288,12 +287,12 @@ async fn connection_execute_batch() {
 
     let mut rows = conn
         .query(
-            "SELECT 
+            "SELECT
                 name
-            FROM 
+            FROM
                 sqlite_schema
-            WHERE 
-                type ='table' AND 
+            WHERE
+                type ='table' AND
                 name NOT LIKE 'sqlite_%';",
             (),
         )

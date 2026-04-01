@@ -1,5 +1,5 @@
 require('vstudio')
-require('gmake2')
+require('gmake')
 
 premake.api.register {
   name = "wxUseProps",
@@ -28,13 +28,13 @@ premake.override(premake.vstudio.vc2010.elements, "project", function(base, prj)
 	return calls
 end)
 
-premake.override(premake.modules.gmake2, "target", function(base, cfg, toolset)
+premake.override(premake.modules.gmake, "target", function(base, cfg, toolset)
   local targetpath = string.gsub(premake.project.getrelative(cfg.project, cfg.buildtarget.directory), ' ', '_')
   premake.outln('TARGETDIR = ' .. targetpath)
   premake.outln('TARGET = $(TARGETDIR)/' .. cfg.buildtarget.name)
 end)
   
-premake.override(premake.modules.gmake2, "objdir", function(base, cfg, toolset)
+premake.override(premake.modules.gmake, "objdir", function(base, cfg, toolset)
   local objpath = string.gsub(premake.project.getrelative(cfg.project, cfg.objdir), ' ', '_')
   premake.outln('OBJDIR = ' .. objpath)
 end)
@@ -61,6 +61,8 @@ elseif _ACTION == "vs2019" then
   vc_version = 16
 elseif _ACTION == "vs2022" then
   vc_version = 17
+elseif _ACTION == "vs2026" then
+  vc_version = 18
 end
 
 is_msvc = false
@@ -73,7 +75,7 @@ end
 
 function wxWorkspaceCommon()
   configurations { "Debug", "Release" }
-  platforms { "Win32", "Win64" }
+  platforms { "Win32", "x64" }
   location(BUILDDIR)
 
   defines {
@@ -87,9 +89,9 @@ function wxWorkspaceCommon()
 
   filter { "platforms:Win32" }
     system "Windows"
-    architecture "x32"
+    architecture "x86"
 
-  filter { "platforms:Win64" }
+  filter { "platforms:x64" }
     system "Windows"
     architecture "x64"
     targetsuffix "_x64"

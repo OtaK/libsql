@@ -10,11 +10,9 @@ pub(crate) trait Stmt {
 
     async fn execute(&self, params: &Params) -> Result<usize>;
 
-    async fn query(&self, params: &Params) -> Result<Rows>;
+    async fn query(&self, params: &Params) -> Rows;
 
     async fn run(&self, params: &Params) -> Result<()>;
-
-    fn interrupt(&self) -> Result<()>;
 
     fn reset(&self);
 
@@ -24,7 +22,7 @@ pub(crate) trait Stmt {
 
     fn column_count(&self) -> usize;
 
-    fn columns(&self) -> Vec<Column>;
+    fn columns(&self) -> Vec<Column<'_>>;
 }
 
 /// A cached prepared statement.
@@ -47,7 +45,7 @@ impl Statement {
     /// Execute a query on the statement, check [`Connection::query`] for usage.
     pub async fn query(&self, params: impl IntoParams) -> Result<Rows> {
         tracing::trace!("query for prepared statement");
-        self.inner.query(&params.into_params()?).await
+        Ok(self.inner.query(&params.into_params()?).await)
     }
 
     /// Run a query on the statement.
@@ -62,11 +60,6 @@ impl Statement {
         tracing::trace!("run for prepared statement");
         self.inner.run(&params.into_params()?).await?;
         Ok(())
-    }
-
-    /// Interrupt the statement.
-    pub fn interrupt(&self) -> Result<()> {
-        self.inner.interrupt()
     }
 
     /// Execute a query that returns the first [`Row`].
@@ -103,7 +96,7 @@ impl Statement {
     }
 
     /// Fetch the list of columns for the prepared statement.
-    pub fn columns(&self) -> Vec<Column> {
+    pub fn columns(&self) -> Vec<Column<'_>> {
         self.inner.columns()
     }
 }

@@ -67,20 +67,6 @@ pub enum Error {
     ReservedBytesNotSupported,
 }
 
-#[cfg(feature = "hrana")]
-impl From<crate::hrana::HranaError> for Error {
-    fn from(e: crate::hrana::HranaError) -> Self {
-        Error::Hrana(e.into())
-    }
-}
-
-#[cfg(feature = "sync")]
-impl From<crate::sync::SyncError> for Error {
-    fn from(e: crate::sync::SyncError) -> Self {
-        Error::Sync(e.into())
-    }
-}
-
 impl From<std::convert::Infallible> for Error {
     fn from(_: std::convert::Infallible) -> Self {
         unreachable!()
@@ -109,11 +95,4 @@ pub fn error_from_code(code: i32) -> String {
 pub fn sqlite_errmsg_to_string(errmsg: *const std::ffi::c_char) -> String {
     let errmsg = unsafe { std::ffi::CStr::from_ptr(errmsg) }.to_bytes();
     String::from_utf8_lossy(errmsg).to_string()
-}
-
-#[cfg(feature = "replication")]
-impl From<bincode::Error> for Error {
-    fn from(e: bincode::Error) -> Self {
-        Error::Bincode(e.into())
-    }
 }

@@ -2,16 +2,7 @@ use libsql::Builder;
 
 #[tokio::main]
 async fn main() {
-    let db = if let Ok(url) = std::env::var("LIBSQL_HRANA_URL") {
-        let token = std::env::var("TURSO_AUTH_TOKEN").unwrap_or_else(|_| {
-            println!("TURSO_AUTH_TOKEN not set, using empty token...");
-            "".to_string()
-        });
-
-        Builder::new_remote(url, token).build().await.unwrap()
-    } else {
-        Builder::new_local(":memory:").build().await.unwrap()
-    };
+    let db = Builder::new_local(":memory:").build().await.unwrap();
 
     let conn = db.connect().unwrap();
 

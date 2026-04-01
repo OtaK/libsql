@@ -10,10 +10,10 @@ The code was mainly developed under Windows, but was tested under Linux as well.
 
 ## Version information
 
-* 1.8.1 - *December 2023*
-  - Based on SQLite version 3.44.2
-  - Fixed issue #133 - missing API symbols
-  - Applied several modifications to improve support for [SQLite3 WASM](https://sqlite.org/wasm/)
+* 2.3.2 - *March 2026*
+  - Fixed issue #227: Compile AEGIS with clang version 22 and above
+  - Fixed issue #228: Function `sqlite3mc_cipher_name` not thread-safe
+  - Fixed issue #229: Symbol conflicts when static linking to both `sqlite3mc` and `libsodium`
 
 For further version information please consult the [CHANGELOG](CHANGELOG.md).
 
@@ -26,3 +26,11 @@ For further version information please consult the [CHANGELOG](CHANGELOG.md).
 Documentation of the currently supported cipher schemes and the C and SQL interfaces is provided on the [SQLite3 Multiple Ciphers website](https://utelle.github.io/SQLite3MultipleCiphers/).
 
 Documentation on how to build the extension can be found on the page [SQLite3 Multiple Ciphers Installation](https://utelle.github.io/SQLite3MultipleCiphers/docs/installation/install_overview/).
+
+## Supporters
+
+[![JetBrains logo.](https://resources.jetbrains.com/storage/products/company/brand/logos/jetbrains.svg)](https://jb.gg/OpenSourceSupport) supports this project (and directly dependent projects like [wxSQLite3](https://github.com/utelle/wxsqlite3), [apsw-sqlite3mc](https://github.com/utelle/apsw-sqlite3mc), and [SQLite3MultipleCiphers-NuGet](https://github.com/utelle/SQLite3MultipleCiphers-NuGet)) by providing free [CLion](https://www.jetbrains.com/clion/) licenses. This helps to better maintain the project for different platforms.
+
+## Support further development
+
+[![Donate for SQLite3 Multiple Ciphers via PayPal](https://www.paypalobjects.com/de_DE/i/btn/x-click-but04.gif)](https://www.paypal.com/donate/?hosted_button_id=3JC9PMMH8X7UN) If you find **SQLite3 Multiple Ciphers** useful and would like to support the further development of this project, you may make a **donation** by clicking on the button on the left.

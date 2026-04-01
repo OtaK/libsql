@@ -26,11 +26,11 @@ use sealed::Sealed;
 /// These can be supplied in a few ways:
 ///
 /// - For heterogeneous parameter lists of 16 or less items a tuple syntax is supported
-///     by doing `(1, "foo")`.
+///   by doing `(1, "foo")`.
 /// - For hetergeneous parameter lists of 16 or greater, the [`libsql::params!`] is supported
-///     by doing `libsql::params![1, "foo"]`.
+///   by doing `libsql::params![1, "foo"]`.
 /// - For homogeneous paramter types (where they are all the same type), const arrays are
-///     supported by doing `[1, 2, 3]`.
+///   supported by doing `[1, 2, 3]`.
 ///
 /// # Example (positional)
 ///
@@ -61,11 +61,11 @@ use sealed::Sealed;
 /// # Named paramters
 ///
 /// - For heterogeneous parameter lists of 16 or less items a tuple syntax is supported
-///     by doing `(("key1", 1), ("key2", "foo"))`.
+///   by doing `(("key1", 1), ("key2", "foo"))`.
 /// - For hetergeneous parameter lists of 16 or greater, the [`libsql::params!`] is supported
-///     by doing `libsql::named_params!["key1": 1, "key2": "foo"]`.
+///   by doing `libsql::named_params!["key1": 1, "key2": "foo"]`.
 /// - For homogeneous paramter types (where they are all the same type), const arrays are
-///     supported by doing `[("key1", 1), ("key2, 2), ("key3", 3)]`.
+///   supported by doing `[("key1", 1), ("key2, 2), ("key3", 3)]`.
 ///
 /// # Example (named)
 ///
@@ -278,37 +278,6 @@ where
 impl IntoValue for Result<Value> {
     fn into_value(self) -> Result<Value> {
         self
-    }
-}
-
-#[cfg(feature = "replication")]
-impl From<Params> for libsql_replication::rpc::proxy::query::Params {
-    fn from(params: Params) -> Self {
-        use libsql_replication::rpc::proxy;
-
-        match params {
-            Params::None => proxy::query::Params::Positional(proxy::Positional::default()),
-            Params::Positional(values) => {
-                let values = values
-                    .iter()
-                    .map(|v| bincode::serialize(v).unwrap())
-                    .map(|data| proxy::Value { data })
-                    .collect::<Vec<_>>();
-                proxy::query::Params::Positional(proxy::Positional { values })
-            }
-            Params::Named(values) => {
-                let (names, values) = values
-                    .into_iter()
-                    .map(|(name, value)| {
-                        let data = bincode::serialize(&value).unwrap();
-                        let value = proxy::Value { data };
-                        (name, value)
-                    })
-                    .unzip();
-
-                proxy::query::Params::Named(proxy::Named { names, values })
-            }
-        }
     }
 }
 

@@ -71,8 +71,6 @@ pub mod statement;
 pub mod types;
 #[cfg(feature = "api")]
 pub mod value;
-#[cfg(feature = "wal")]
-pub mod wal;
 
 #[cfg(feature = "api")]
 pub use connection::Cipher;
@@ -88,6 +86,3 @@ pub use statement::{prepare_stmt, Statement};
 pub use types::*;
 #[cfg(feature = "api")]
 pub use value::{Value, ValueType};
-
-#[cfg(feature = "rusqlite")]
-pub use rusqlite;

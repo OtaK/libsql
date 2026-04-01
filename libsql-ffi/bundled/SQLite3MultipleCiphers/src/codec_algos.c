@@ -89,10 +89,6 @@ sqlite3mcGenerateInitialVector(int seed, unsigned char iv[16])
   sqlite3mcGetMD5Binary((unsigned char*) initkey, 16, iv);
 }
 
-void libsql_generate_initial_vector(int seed, unsigned char iv[16]) {
-  sqlite3mcGenerateInitialVector(seed, iv);
-}
-
 #if HAVE_CIPHER_AES_128_CBC
 
 SQLITE_PRIVATE int
@@ -135,7 +131,7 @@ sqlite3mcAES128(Rijndael* aesCtx, int page, int encrypt, unsigned char encryptio
   {
     len = RijndaelBlockDecrypt(aesCtx, datain, datalen*8, dataout);
   }
-  
+
   /* It is a good idea to check the error code */
   if (len < 0)
   {
@@ -189,7 +185,7 @@ sqlite3mcAES256(Rijndael* aesCtx, int page, int encrypt, unsigned char encryptio
   {
     len = RijndaelBlockDecrypt(aesCtx, datain, datalen*8, dataout);
   }
-  
+
   /* It is a good idea to check the error code */
   if (len < 0)
   {
@@ -235,4 +231,81 @@ sqlite3mcConvertHex2Bin(const unsigned char* hex, int len, unsigned char* bin)
   {
     bin[j / 2] = (sqlite3mcConvertHex2Int(hex[j]) << 4) | sqlite3mcConvertHex2Int(hex[j + 1]);
   }
+}
+
+/* Extract raw key (and optionally salt) */
+SQLITE_PRIVATE int
+sqlite3mcExtractRawKey(const char* password, int passwordLength,
+                       int keyOnly, int keyLength, int saltLength,
+                       unsigned char* key, unsigned char* salt)
+{
+  /* Bypass key derivation if the key string starts with "raw:" */
+  int bypass = 0;
+  if (passwordLength > 4 && !memcmp(password, "raw:", 4))
+  {
+    const int nRaw = passwordLength - 4;
+    const unsigned char* zRaw = (const unsigned char*) password + 4;
+
+    if (nRaw == keyLength + saltLength)
+    {
+      /* Binary key and salt */
+      if (!keyOnly)
+      {
+        memcpy(salt, zRaw + keyLength, saltLength);
+      }
+      memcpy(key, zRaw, keyLength);
+      bypass = 1;
+    }
+    else if (nRaw == keyLength)
+    {
+      /* Binary key */
+      memcpy(key, zRaw, keyLength);
+      bypass = 1;
+    }
+    else if (nRaw == 2 * keyLength)
+    {
+      /* Hex-encoded key */
+      if (sqlite3mcIsHexKey(zRaw, nRaw) != 0)
+      {
+        sqlite3mcConvertHex2Bin(zRaw, nRaw, key);
+        bypass = 1;
+      }
+    }
+    else if (nRaw == 2 * (keyLength + saltLength))
+    {
+      /* Hex-encoded key and salt */
+      if (sqlite3mcIsHexKey(zRaw, nRaw) != 0)
+      {
+        sqlite3mcConvertHex2Bin(zRaw, 2 * keyLength, key);
+        if (!keyOnly)
+        {
+          sqlite3mcConvertHex2Bin(zRaw + 2 * keyLength, 2 * saltLength, salt);
+        }
+        bypass = 1;
+      }
+    }
+  }
+  else
+  {
+    /* SQLCipher syntax for raw key (and optionally salt) */
+    if (passwordLength == ((keyLength * 2) + 3) &&
+        sqlite3_strnicmp(password, "x'", 2) == 0 &&
+        sqlite3mcIsHexKey((unsigned char*)(password + 2), keyLength * 2) != 0)
+    {
+      sqlite3mcConvertHex2Bin((unsigned char*)(password + 2), passwordLength - 3, key);
+      bypass = 1;
+    }
+    else if (passwordLength == (((keyLength + saltLength) * 2) + 3) &&
+             sqlite3_strnicmp(password, "x'", 2) == 0 &&
+             sqlite3mcIsHexKey((unsigned char*)(password + 2), (keyLength + saltLength) * 2) != 0)
+    {
+      sqlite3mcConvertHex2Bin((unsigned char*)(password + 2), keyLength * 2, key);
+      if (!keyOnly)
+      {
+        sqlite3mcConvertHex2Bin((unsigned char*)(password + 2 + keyLength * 2), saltLength * 2, salt);
+      }
+      bypass = 1;
+    }
+  }
+  return bypass;
 }

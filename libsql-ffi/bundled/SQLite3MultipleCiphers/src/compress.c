@@ -59,7 +59,7 @@ static void compressFunc(
   pIn = sqlite3_value_blob(argv[0]);
   nIn = sqlite3_value_bytes(argv[0]);
   nOut = 13 + nIn + (nIn+999)/1000;
-  pOut = sqlite3_malloc( nOut+5 );
+  pOut = sqlite3_malloc64( nOut+5 );
   for(i=4; i>=0; i--){
     x[i] = (nIn >> (7*(4-i)))&0x7f;
   }
@@ -98,7 +98,7 @@ static void uncompressFunc(
     nOut = (nOut<<7) | (pIn[i]&0x7f);
     if( (pIn[i]&0x80)!=0 ){ i++; break; }
   }
-  pOut = sqlite3_malloc( nOut+1 );
+  pOut = sqlite3_malloc64( nOut+1 );
   rc = uncompress(pOut, &nOut, &pIn[i], nIn-i);
   if( rc==Z_OK ){
     sqlite3_result_blob(context, pOut, nOut, sqlite3_free);
@@ -107,19 +107,19 @@ static void uncompressFunc(
   }
 }
 
-
-#ifdef _WIN32
-__declspec(dllexport)
+#ifndef SQLITE_API
+#define SQLITE_API
 #endif
+SQLITE_API
 int sqlite3_compress_init(
-  sqlite3 *db, 
-  char **pzErrMsg, 
+  sqlite3 *db,
+  char **pzErrMsg,
   const sqlite3_api_routines *pApi
 ){
   int rc = SQLITE_OK;
   SQLITE_EXTENSION_INIT2(pApi);
   (void)pzErrMsg;  /* Unused parameter */
-  rc = sqlite3_create_function(db, "compress", 1, 
+  rc = sqlite3_create_function(db, "compress", 1,
                     SQLITE_UTF8 | SQLITE_INNOCUOUS,
                     0, compressFunc, 0, 0);
   if( rc==SQLITE_OK ){

@@ -1,9 +1,10 @@
-use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt, path::Path};
 
+use blocking::unblock;
+
 use crate::{
-    connection::{AuthHook, BatchRows, Conn, UpdateHook},
+    connection::{AuthHook, BatchRows, UpdateHook},
     params::Params,
     rows::{ColumnsInner, RowInner, RowsInner},
     statement::Stmt,
@@ -17,91 +18,92 @@ pub(crate) struct LibsqlConnection {
     pub(crate) conn: super::Connection,
 }
 
-#[async_trait::async_trait]
-impl Conn for LibsqlConnection {
-    async fn execute(&self, sql: &str, params: Params) -> Result<u64> {
-        self.conn.execute(sql, params)
+impl LibsqlConnection {
+    pub async fn execute<S: Into<String>>(&self, sql: S, params: Params) -> Result<u64> {
+        let this = self.clone();
+        let sql = sql.into();
+        unblock(move || this.conn.execute(sql, params)).await
     }
 
-    async fn execute_batch(&self, sql: &str) -> Result<BatchRows> {
-        self.conn.execute_batch(sql)
+    pub async fn execute_batch<S: Into<String>>(&self, sql: S) -> Result<BatchRows> {
+        let this = self.clone();
+        let sql = sql.into();
+        unblock(move || this.conn.execute_batch(sql)).await
     }
 
-    async fn execute_transactional_batch(&self, sql: &str) -> Result<BatchRows> {
-        self.conn.execute_transactional_batch(sql)?;
+    pub async fn execute_transactional_batch<S: Into<String>>(&self, sql: S) -> Result<BatchRows> {
+        let this = self.clone();
+        let sql = sql.into();
+        unblock(move || this.conn.execute_transactional_batch(sql)).await?;
         Ok(BatchRows::empty())
     }
 
-    async fn prepare(&self, sql: &str) -> Result<Statement> {
-        let sql = sql.to_string();
-
-        let stmt = self.conn.prepare(sql)?;
-
+    pub async fn prepare<S: Into<String>>(&self, sql: S) -> Result<Statement> {
+        let this = self.clone();
+        let sql = sql.into();
+        let stmt = unblock(move || this.conn.prepare(sql)).await?;
         Ok(Statement {
             inner: Box::new(LibsqlStmt(stmt)),
         })
     }
 
-    async fn transaction(&self, tx_behavior: TransactionBehavior) -> Result<Transaction> {
-        let tx = crate::local::Transaction::begin(self.conn.clone(), tx_behavior)?;
+    pub async fn transaction(&self, tx_behavior: TransactionBehavior) -> Result<Transaction> {
+        let conn = self.conn.clone();
+        let tx = unblock(move || crate::local::Transaction::begin(conn, tx_behavior)).await?;
         // TODO(lucio): Can we just use the conn passed to the transaction?
         Ok(Transaction {
             inner: Box::new(LibsqlTx(Some(tx))),
-            conn: Connection {
-                conn: Arc::new(self.clone()),
-            },
+            conn: Connection { conn: self.clone() },
             close: None,
         })
     }
 
-    fn interrupt(&self) -> Result<()> {
+    pub fn interrupt(&self) -> Result<()> {
         self.conn.interrupt()
     }
 
-    fn busy_timeout(&self, timeout: Duration) -> Result<()> {
+    pub fn busy_timeout(&self, timeout: Duration) -> Result<()> {
         self.conn.busy_timeout(timeout)
     }
 
-    fn is_autocommit(&self) -> bool {
+    pub fn is_autocommit(&self) -> bool {
         self.conn.is_autocommit()
     }
 
-    fn changes(&self) -> u64 {
+    pub fn changes(&self) -> u64 {
         self.conn.changes()
     }
 
-    fn total_changes(&self) -> u64 {
+    pub fn total_changes(&self) -> u64 {
         self.conn.total_changes()
     }
 
-    fn last_insert_rowid(&self) -> i64 {
+    pub fn last_insert_rowid(&self) -> i64 {
         self.conn.last_insert_rowid()
     }
 
-    async fn reset(&self) {}
-
-    fn set_reserved_bytes(&self, reserved_bytes: i32) -> Result<()> {
+    pub fn set_reserved_bytes(&self, reserved_bytes: i32) -> Result<()> {
         self.conn.set_reserved_bytes(reserved_bytes)
     }
 
-    fn get_reserved_bytes(&self) -> Result<i32> {
+    pub fn get_reserved_bytes(&self) -> Result<i32> {
         self.conn.get_reserved_bytes()
     }
 
-    fn enable_load_extension(&self, onoff: bool) -> Result<()> {
+    pub fn enable_load_extension(&self, onoff: bool) -> Result<()> {
         self.conn.enable_load_extension(onoff)
     }
 
-    fn load_extension(&self, dylib_path: &Path, entry_point: Option<&str>) -> Result<()> {
+    pub fn load_extension(&self, dylib_path: &Path, entry_point: Option<&str>) -> Result<()> {
         self.conn.load_extension(dylib_path, entry_point)
     }
 
-    fn authorizer(&self, hook: Option<AuthHook>) -> Result<()> {
+    pub fn authorizer(&self, hook: Option<AuthHook>) -> Result<()> {
         self.conn.authorizer(hook)
     }
 
-    fn add_update_hook(&self, cb: Box<UpdateHook>) -> Result<()> {
-        Ok(self.conn.add_update_hook(cb))
+    pub fn add_update_hook(&self, cb: Box<UpdateHook>) {
+        self.conn.add_update_hook(cb)
     }
 }
 
@@ -123,25 +125,24 @@ impl Stmt for LibsqlStmt {
         let params = params.clone();
         let stmt = self.0.clone();
 
-        stmt.execute(&params).map(|i| i as usize)
+        unblock(move || stmt.execute(&params))
+            .await
+            .map(|i| i as usize)
     }
 
-    async fn query(&self, params: &Params) -> Result<Rows> {
+    async fn query(&self, params: &Params) -> Rows {
         let params = params.clone();
         let stmt = self.0.clone();
 
-        stmt.query(&params).map(LibsqlRows).map(Rows::new)
+        let rows = unblock(move || stmt.query(&params)).await;
+        Rows::new(LibsqlRows(rows))
     }
 
     async fn run(&self, params: &Params) -> Result<()> {
         let params = params.clone();
         let stmt = self.0.clone();
 
-        stmt.run(&params)
-    }
-
-    fn interrupt(&self) -> Result<()> {
-        self.0.interrupt()
+        unblock(move || stmt.run(&params)).await
     }
 
     fn reset(&self) {
@@ -160,7 +161,7 @@ impl Stmt for LibsqlStmt {
         self.0.column_count()
     }
 
-    fn columns(&self) -> Vec<Column> {
+    fn columns(&self) -> Vec<Column<'_>> {
         self.0.columns()
     }
 }
@@ -171,12 +172,12 @@ pub(super) struct LibsqlTx(pub(super) Option<crate::local::Transaction>);
 impl Tx for LibsqlTx {
     async fn commit(&mut self) -> Result<()> {
         let tx = self.0.take().expect("Tx already dropped");
-        tx.commit()
+        unblock(|| tx.commit()).await
     }
 
     async fn rollback(&mut self) -> Result<()> {
         let tx = self.0.take().expect("Tx already dropped");
-        tx.rollback()
+        unblock(|| tx.rollback()).await
     }
 }
 
@@ -185,7 +186,9 @@ pub(crate) struct LibsqlRows(pub(crate) crate::local::Rows);
 #[async_trait::async_trait]
 impl RowsInner for LibsqlRows {
     async fn next(&mut self) -> Result<Option<Row>> {
-        let row = self.0.next()?.map(|r| Row {
+        let rows = self.0.clone();
+        self.0 = crate::local::Rows::new(rows.stmt.clone());
+        let row = unblock(move || rows.next()).await?.map(|r| Row {
             inner: Box::new(LibsqlRow(r)),
         });
 

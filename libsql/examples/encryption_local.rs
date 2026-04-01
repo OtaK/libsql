@@ -17,7 +17,7 @@ async fn main() {
     let mut db_builder = Builder::new_local(db_path);
 
     db_builder = db_builder.encryption_config(EncryptionConfig {
-        cipher: Cipher::Aes256Cbc,
+        cipher: Cipher::SqlCipher,
         encryption_key: encryption_key.into(),
     });
 

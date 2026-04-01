@@ -1,29 +1,19 @@
-use std::marker::PhantomData;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::wal::{ffi::make_wal_manager, Wal, WalManager};
+// use crate::wal::{ffi::make_wal_manager, Wal, WalManager};
 
-#[cfg(not(feature = "rusqlite"))]
 type RawConnection = *mut crate::ffi::sqlite3;
-#[cfg(feature = "rusqlite")]
-type RawConnection = rusqlite::Connection;
 
-#[cfg(not(feature = "rusqlite"))]
 pub type OpenFlags = std::ffi::c_int;
-#[cfg(feature = "rusqlite")]
-pub type OpenFlags = rusqlite::OpenFlags;
 
-#[cfg(feature = "rusqlite")]
-type Error = rusqlite::Error;
-#[cfg(not(feature = "rusqlite"))]
 type Error = crate::Error;
 
 #[derive(Clone, Debug, Default)]
 pub enum Cipher {
     // AES 256 Bit CBC - No HMAC (wxSQLite3)
     #[default]
-    Aes256Cbc,
+    SqlCipher,
 }
 
 impl FromStr for Cipher {
@@ -31,7 +21,7 @@ impl FromStr for Cipher {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "aes256cbc" => Ok(Cipher::Aes256Cbc),
+            "sqlcipher" => Ok(Cipher::SqlCipher),
             _ => Err(Self::Err::new(21)),
         }
     }
@@ -41,7 +31,7 @@ impl Cipher {
     #[cfg(feature = "encryption")]
     pub fn cipher_id(&self) -> i32 {
         let name = match self {
-            Cipher::Aes256Cbc => "aes256cbc\0",
+            Cipher::SqlCipher => "sqlcipher\0",
         };
         unsafe { sqlite3mc_cipher_index(name.as_ptr() as _) }
     }
@@ -68,37 +58,8 @@ impl EncryptionConfig {
 }
 
 #[derive(Debug)]
-pub struct Connection<W> {
+pub struct Connection {
     conn: RawConnection,
-    _pth: PhantomData<W>,
-}
-
-#[cfg(feature = "rusqlite")]
-impl<W> std::ops::Deref for Connection<W> {
-    type Target = rusqlite::Connection;
-
-    fn deref(&self) -> &Self::Target {
-        &self.conn
-    }
-}
-
-#[cfg(feature = "rusqlite")]
-impl<W> std::ops::DerefMut for Connection<W> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.conn
-    }
-}
-
-#[cfg(feature = "rusqlite")]
-impl Connection<crate::wal::Sqlite3Wal> {
-    /// returns a dummy, in-memory connection. For testing purposes only
-    pub fn test() -> Self {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        Self {
-            conn,
-            _pth: PhantomData,
-        }
-    }
 }
 
 #[cfg(feature = "encryption")]
@@ -119,35 +80,6 @@ extern "C" {
         pKey: *const std::ffi::c_void,
         nKey: std::ffi::c_int,
     ) -> std::ffi::c_int;
-
-    fn libsql_leak_pager(db: *mut libsql_ffi::sqlite3) -> *mut crate::ffi::Pager;
-    fn libsql_generate_initial_vector(seed: u32, iv: *mut u8);
-    fn libsql_generate_aes256_key(user_password: *const u8, password_length: u32, digest: *mut u8);
-}
-
-pub fn pghdr_creator(
-    data: &mut [u8; 4096],
-    _db: *mut libsql_ffi::sqlite3,
-) -> libsql_ffi::libsql_pghdr {
-    #[cfg(feature = "encryption")]
-    let pager = crate::connection::leak_pager(_db);
-    #[cfg(not(feature = "encryption"))]
-    let pager = std::ptr::null_mut();
-
-    libsql_ffi::libsql_pghdr {
-        pPage: std::ptr::null_mut(),
-        pData: data.as_mut_ptr() as _,
-        pExtra: std::ptr::null_mut(),
-        pCache: std::ptr::null_mut(),
-        pDirty: std::ptr::null_mut(),
-        pPager: pager,
-        pgno: 1,
-        pageHash: 0x02, // DIRTY
-        flags: 0,
-        nRef: 0,
-        pDirtyNext: std::ptr::null_mut(),
-        pDirtyPrev: std::ptr::null_mut(),
-    }
 }
 
 #[cfg(feature = "encryption")]
@@ -167,111 +99,25 @@ pub unsafe fn set_encryption_key(db: *mut libsql_ffi::sqlite3, key: &[u8]) -> i3
 #[cfg(feature = "encryption")]
 /// # Safety
 /// db must point to a valid sqlite database
-pub fn reset_encryption_key(db: *mut libsql_ffi::sqlite3, key: &[u8]) -> i32 {
+pub unsafe fn reset_encryption_key(db: *mut libsql_ffi::sqlite3, key: &[u8]) -> i32 {
     unsafe { sqlite3_rekey(db, key.as_ptr() as _, key.len() as _) as i32 }
-}
-
-#[cfg(feature = "encryption")]
-pub fn leak_pager(db: *mut libsql_ffi::sqlite3) -> *mut crate::ffi::Pager {
-    unsafe { libsql_leak_pager(db) }
-}
-
-#[cfg(feature = "encryption")]
-pub fn generate_initial_vector(seed: u32, iv: &mut [u8]) {
-    unsafe { libsql_generate_initial_vector(seed, iv.as_mut_ptr()) }
-}
-
-#[cfg(feature = "encryption")]
-pub fn generate_aes256_key(user_password: &[u8], digest: &mut [u8]) {
-    unsafe {
-        libsql_generate_aes256_key(
-            user_password.as_ptr(),
-            user_password.len() as u32,
-            digest.as_mut_ptr(),
-        )
-    }
 }
 
 pub const NO_AUTOCHECKPOINT: u32 = 0;
 
-impl<W: Wal> Connection<W> {
+impl Connection {
     /// Opens a database with the regular wal methods in the directory pointed to by path
     pub fn open<T>(
         path: impl AsRef<Path>,
         flags: OpenFlags,
-        wal_manager: T,
         auto_checkpoint: u32,
         encryption_config: Option<EncryptionConfig>,
-    ) -> Result<Self, Error>
-    where
-        T: WalManager<Wal = W>,
-    {
+    ) -> Result<Self, Error> {
         tracing::trace!(
             "Opening a connection with regular WAL at {}",
             path.as_ref().display()
         );
 
-        #[cfg(feature = "rusqlite")]
-        let conn = {
-            let conn = if cfg!(feature = "unix-excl-vfs") {
-                rusqlite::Connection::open_with_flags_vfs_and_wal(
-                    path,
-                    flags,
-                    "unix-excl",
-                    make_wal_manager(wal_manager),
-                )
-            } else {
-                rusqlite::Connection::open_with_flags_and_wal(
-                    path,
-                    flags,
-                    make_wal_manager(wal_manager),
-                )
-            }?;
-
-            if !cfg!(feature = "encryption") && encryption_config.is_some() {
-                return Err(Error::SqliteFailure(
-                    rusqlite::ffi::Error::new(21),
-                    Some("encryption feature is not enabled, the database will not be encrypted on disk"
-                        .to_string()),
-                ));
-            }
-            #[cfg(feature = "encryption")]
-            if let Some(cfg) = encryption_config {
-                let cipher_id = cfg.cipher_id();
-                if unsafe { set_encryption_cipher(conn.handle(), cipher_id) } == -1 {
-                    return Err(Error::SqliteFailure(
-                        rusqlite::ffi::Error::new(21),
-                        Some("failed to set encryption cipher".into()),
-                    ));
-                };
-                if unsafe { set_encryption_key(conn.handle(), &cfg.encryption_key) }
-                    != rusqlite::ffi::SQLITE_OK
-                {
-                    return Err(Error::SqliteFailure(
-                        rusqlite::ffi::Error::new(21),
-                        Some("failed to set encryption key".into()),
-                    ));
-                };
-            }
-
-            conn.pragma_update(None, "journal_mode", "WAL")?;
-            unsafe {
-                let rc =
-                    rusqlite::ffi::sqlite3_wal_autocheckpoint(conn.handle(), auto_checkpoint as _);
-                if rc != 0 {
-                    return Err(rusqlite::Error::SqliteFailure(
-                        rusqlite::ffi::Error::new(rc),
-                        Some("failed to set auto_checkpoint".into()),
-                    ));
-                }
-            }
-
-            conn.busy_timeout(std::time::Duration::from_millis(100))?;
-
-            conn
-        };
-
-        #[cfg(not(feature = "rusqlite"))]
         let conn = unsafe {
             #[cfg(unix)]
             let path = {
@@ -304,13 +150,8 @@ impl<W: Wal> Connection<W> {
             } else {
                 std::ptr::null_mut()
             };
-            let mut rc = libsql_ffi::libsql_open_v3(
-                path.as_ptr(),
-                &mut conn as *mut _,
-                flags,
-                vfs,
-                make_wal_manager(wal_manager),
-            );
+            let mut rc =
+                libsql_ffi::sqlite3_open_v2(path.as_ptr(), &mut conn as *mut _, flags, vfs);
 
             if !cfg!(feature = "encryption") && encryption_config.is_some() {
                 return Err(Error::Bug(
@@ -344,10 +185,7 @@ impl<W: Wal> Connection<W> {
             conn
         };
 
-        Ok(Connection {
-            conn,
-            _pth: PhantomData,
-        })
+        Ok(Connection { conn })
     }
 
     /// Returns the raw sqlite handle
@@ -355,14 +193,7 @@ impl<W: Wal> Connection<W> {
     /// # Safety
     /// The caller is responsible for the returned pointer.
     pub unsafe fn handle(&self) -> *mut libsql_ffi::sqlite3 {
-        #[cfg(feature = "rusqlite")]
-        {
-            self.conn.handle()
-        }
-        #[cfg(not(feature = "rusqlite"))]
-        {
-            self.conn
-        }
+        self.conn
     }
 
     pub fn db_change_counter(&self) -> Result<u32, std::ffi::c_int> {

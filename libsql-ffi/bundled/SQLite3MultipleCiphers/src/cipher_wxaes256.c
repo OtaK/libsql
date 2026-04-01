@@ -3,7 +3,7 @@
 ** Purpose:     Implementation of cipher wxSQLite3 AES 256-bit
 ** Author:      Ulrich Telle
 ** Created:     2020-02-02
-** Copyright:   (c) 2006-2020 Ulrich Telle
+** Copyright:   (c) 2006-2024 Ulrich Telle
 ** License:     MIT
 */
 
@@ -80,9 +80,9 @@ static void
 FreeAES256Cipher(void* cipher)
 {
   AES256Cipher* aesCipher = (AES256Cipher*) cipher;
-  memset(aesCipher->m_aes, 0, sizeof(Rijndael));
+  sqlite3mcSecureZeroMemory(aesCipher->m_aes, sizeof(Rijndael));
   sqlite3_free(aesCipher->m_aes);
-  memset(aesCipher, 0, sizeof(AES256Cipher));
+  sqlite3mcSecureZeroMemory(aesCipher, sizeof(AES256Cipher));
   sqlite3_free(aesCipher);
 }
 
@@ -136,7 +136,7 @@ GetSaltAES256Cipher(void* cipher)
 }
 
 static void
-GenerateKeyAES256Cipher(void* cipher, BtShared* pBt, char* userPassword, int passwordLength, int rekey, unsigned char* cipherSalt)
+GenerateKeyAES256Cipher(void* cipher, char* userPassword, int passwordLength, int rekey, unsigned char* cipherSalt)
 {
   AES256Cipher* aesCipher = (AES256Cipher*) cipher;
   unsigned char userPad[32];
@@ -153,23 +153,6 @@ GenerateKeyAES256Cipher(void* cipher, BtShared* pBt, char* userPassword, int pas
     sha256(digest, KEYLENGTH_AES256, digest);
   }
   memcpy(aesCipher->m_key, digest, aesCipher->m_keyLength);
-}
-
-// Assumes the digest is at least KEYLENGTH_AES256 bytes long (32),
-// generates the key in the digest.
-void libsql_generate_aes256_key(char *userPassword, int passwordLength, char *digest) {
-  unsigned char userPad[32];
-  int keyLength = KEYLENGTH_AES256;
-  int k;
-
-  /* Pad password */
-  sqlite3mcPadPassword(userPassword, passwordLength, userPad);
-
-  sha256(userPad, 32, digest);
-  for (k = 0; k < CODEC_SHA_ITER; ++k)
-  {
-    sha256(digest, KEYLENGTH_AES256, digest);
-  }
 }
 
 static int

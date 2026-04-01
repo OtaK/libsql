@@ -8,7 +8,6 @@ use std::process::Command;
 
 const LIB_NAME: &str = "libsql";
 const BUNDLED_DIR: &str = "bundled";
-const SQLITE_DIR: &str = "../libsql-sqlite3";
 
 fn main() {
     let target = env::var("TARGET").unwrap();
@@ -28,7 +27,6 @@ fn main() {
     }
 
     if std::env::var("LIBSQL_DEV").is_ok() {
-        make_amalgamation();
         build_multiple_ciphers(&out_path);
     }
 
@@ -94,39 +92,6 @@ fn copy_with_cp(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> 
             Err(err) => Err(err),
         },
     }
-}
-
-fn make_amalgamation() {
-    let flags = ["-DSQLITE_ENABLE_COLUMN_METADATA=1"];
-
-    Command::new("make")
-        .current_dir(SQLITE_DIR)
-        .arg("clean")
-        .output()
-        .unwrap();
-
-    Command::new("./configure")
-        .current_dir(SQLITE_DIR)
-        .env("CFLAGS", flags.join(" "))
-        .output()
-        .unwrap();
-
-    Command::new("make")
-        .current_dir(SQLITE_DIR)
-        .output()
-        .unwrap();
-
-    copy_with_cp(
-        (SQLITE_DIR.as_ref() as &Path).join("sqlite3.c"),
-        (BUNDLED_DIR.as_ref() as &Path).join("src/sqlite3.c"),
-    )
-    .unwrap();
-
-    copy_with_cp(
-        (SQLITE_DIR.as_ref() as &Path).join("sqlite3.h"),
-        (BUNDLED_DIR.as_ref() as &Path).join("src/sqlite3.h"),
-    )
-    .unwrap();
 }
 
 fn generate_sqlean(enabled_extensions: &[&str], output_path: &Path) -> io::Result<()> {
@@ -427,7 +392,7 @@ pub fn build_bundled(out_dir: &str, out_path: &Path) {
 }
 
 fn copy_multiple_ciphers(out_path: &Path) {
-    let dst = dbg!(build_multiple_ciphers(out_path));
+    let dst = build_multiple_ciphers(out_path);
 
     println!("cargo:rustc-link-search={}", dst.join("build").display());
     println!(
@@ -448,10 +413,11 @@ fn build_multiple_ciphers(out_path: &Path) -> PathBuf {
         "bundled/bindings/bindgen.rs"
     };
 
-    if std::env::var("LIBSQL_DEV").is_ok() {
-        let header = HeaderLocation::FromPath(format!("{BUNDLED_DIR}/src/sqlite3.h"));
-        bindings::write_to_out_dir(header, bindgen_rs_path.as_ref());
-    }
+    // NOTE: Keep the OG sqlite.h
+    // if std::env::var("LIBSQL_DEV").is_ok() {
+    //     let header = HeaderLocation::FromPath(format!("{BUNDLED_DIR}/src/sqlite3.h"));
+    //     bindings::write_to_out_dir(header, bindgen_rs_path.as_ref());
+    // }
 
     let dir = env!("CARGO_MANIFEST_DIR");
     copy_with_cp(format!("{dir}/{bindgen_rs_path}"), out_path).unwrap();
@@ -464,11 +430,12 @@ fn build_multiple_ciphers(out_path: &Path) -> PathBuf {
     )
     .unwrap();
 
-    copy_with_cp(
-        PathBuf::from(BUNDLED_DIR).join("src").join("sqlite3.c"),
-        format!("{out_dir}/sqlite3mc/src/sqlite3.c"),
-    )
-    .unwrap();
+    // Note: keep the OG sqlite3.c
+    // copy_with_cp(
+    //     PathBuf::from(BUNDLED_DIR).join("src").join("sqlite3.c"),
+    //     format!("{out_dir}/sqlite3mc/src/sqlite3.c"),
+    // )
+    // .unwrap();
 
     let bundled_dir = format!("{out_dir}/sqlite3mc");
 
@@ -477,7 +444,7 @@ fn build_multiple_ciphers(out_path: &Path) -> PathBuf {
     config
         .build_target("sqlite3mc_static")
         .define("SQLITE3MC_STATIC", "ON")
-        .define("CODEC_TYPE", "AES256")
+        .define("CODEC_TYPE", "SQLCIPHER")
         .define("SQLITE3MC_BUILD_SHELL", "OFF")
         .define("SQLITE_SHELL_IS_UTF8", "OFF")
         .define("SQLITE_USER_AUTHENTICATION", "OFF")
@@ -502,11 +469,11 @@ fn build_multiple_ciphers(out_path: &Path) -> PathBuf {
         build.compiler(cxx);
         config.init_cxx_cfg(build);
     }
-    let target = env::var("TARGET").unwrap();
+    // let target = env::var("TARGET").unwrap();
 
-    if target.ends_with("apple-ios") || target.contains("android") {
-        config.define("SQLITE3MC_OMIT_AES_HARDWARE_SUPPORT", "ON");
-    }
+    // if target.ends_with("apple-ios") || target.contains("android") {
+    //     config.define("SQLITE3MC_OMIT_AES_HARDWARE_SUPPORT", "ON");
+    // }
 
     if cfg!(feature = "wasmtime-bindings") {
         config.define("LIBSQL_ENABLE_WASM_RUNTIME", "1");

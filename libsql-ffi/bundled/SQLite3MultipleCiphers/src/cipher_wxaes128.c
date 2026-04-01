@@ -3,7 +3,7 @@
 ** Purpose:     Implementation of cipher wxSQLite3 AES 128-bit
 ** Author:      Ulrich Telle
 ** Created:     2020-02-02
-** Copyright:   (c) 2006-2020 Ulrich Telle
+** Copyright:   (c) 2006-2024 Ulrich Telle
 ** License:     MIT
 */
 
@@ -75,9 +75,9 @@ static void
 FreeAES128Cipher(void* cipher)
 {
   AES128Cipher* localCipher = (AES128Cipher*) cipher;
-  memset(localCipher->m_aes, 0, sizeof(Rijndael));
+  sqlite3mcSecureZeroMemory(localCipher->m_aes, sizeof(Rijndael));
   sqlite3_free(localCipher->m_aes);
-  memset(localCipher, 0, sizeof(AES128Cipher));
+  sqlite3mcSecureZeroMemory(localCipher, sizeof(AES128Cipher));
   sqlite3_free(localCipher);
 }
 
@@ -130,7 +130,7 @@ GetSaltAES128Cipher(void* cipher)
 }
 
 static void
-GenerateKeyAES128Cipher(void* cipher, BtShared* pBt, char* userPassword, int passwordLength, int rekey, unsigned char* cipherSalt)
+GenerateKeyAES128Cipher(void* cipher, char* userPassword, int passwordLength, int rekey, unsigned char* cipherSalt)
 {
   AES128Cipher* aesCipher = (AES128Cipher*) cipher;
   unsigned char userPad[32];

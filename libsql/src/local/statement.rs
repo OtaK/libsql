@@ -23,13 +23,13 @@ impl Statement {
     pub(crate) fn prepare(
         conn: Connection,
         raw: *mut libsql_sys::ffi::sqlite3,
-        sql: &str,
+        sql: String,
     ) -> Result<Statement> {
-        match unsafe { libsql_sys::prepare_stmt(raw, sql) } {
+        match unsafe { libsql_sys::prepare_stmt(raw, &sql) } {
             Ok(stmt) => Ok(Statement {
                 conn,
                 inner: Arc::new(stmt),
-                sql: sql.to_string(),
+                sql,
             }),
             Err(libsql_sys::Error::LibError(_err)) => Err(Error::SqliteFailure(
                 errors::extended_error_code(raw),
@@ -41,13 +41,13 @@ impl Statement {
         }
     }
 
-    pub fn query_map<F, T>(&self, params: &Params, f: F) -> Result<MappedRows<F>>
+    pub fn query_map<F, T>(&self, params: &Params, f: F) -> MappedRows<F>
     where
         F: FnMut(Row) -> Result<T>,
     {
-        let rows = self.query(params)?;
+        let rows = self.query(params);
 
-        Ok(MappedRows::new(rows, f))
+        MappedRows::new(rows, f)
     }
 
     pub fn run(&self, params: &Params) -> Result<()> {
@@ -63,21 +63,21 @@ impl Statement {
         }
     }
 
-    pub fn query(&self, params: &Params) -> Result<Rows> {
+    pub fn query(&self, params: &Params) -> Rows {
         self.bind(params);
         let err = self.inner.step();
-        Ok(Rows::new2(
+        Rows::new2(
             self.clone(),
             RefCell::new(Some((
                 err,
                 errors::extended_error_code(self.conn.raw),
                 errors::error_from_handle(self.conn.raw),
             ))),
-        ))
+        )
     }
 
     pub fn query_row(&self, params: &Params) -> Result<Row> {
-        let rows = self.query(params)?;
+        let rows = self.query(params);
 
         let row = rows.next()?.ok_or(Error::QueryReturnedNoRows)?;
 
@@ -132,12 +132,6 @@ impl Statement {
                 errors::error_from_handle(self.conn.raw),
             )),
         }
-    }
-
-    /// Interrupt the statement.
-    pub fn interrupt(&self) -> Result<()> {
-        self.inner.interrupt();
-        Ok(())
     }
 
     /// Reset the prepared statement to initial state for reuse.
@@ -256,15 +250,15 @@ impl Statement {
     /// sure that current statement has already been stepped once before
     /// calling this method.
     pub fn column_names(&self) -> Vec<&str> {
-       let n = self.column_count();
-       let mut cols = Vec::with_capacity(n);
-       for i in 0..n {
-           let s = self.column_name(i);
-           if let Some(s) = s {
-               cols.push(s);
-           }
-       }
-       cols
+        let n = self.column_count();
+        let mut cols = Vec::with_capacity(n);
+        for i in 0..n {
+            let s = self.column_name(i);
+            if let Some(s) = s {
+                cols.push(s);
+            }
+        }
+        cols
     }
 
     /// Return the number of columns in the result set returned by the prepared
@@ -328,7 +322,7 @@ impl Statement {
                 .column_name(i)
                 .ok_or_else(|| Error::InvalidColumnName(name.to_string()))?;
             if bytes.eq_ignore_ascii_case(col_name.as_bytes()) {
-                return Ok(i as usize);
+                return Ok(i);
             }
         }
         Err(Error::InvalidColumnName(name.to_string()))
@@ -339,7 +333,7 @@ impl Statement {
     /// If associated DB schema can be altered concurrently, you should make
     /// sure that current statement has already been stepped once before
     /// calling this method.
-    pub fn columns(&self) -> Vec<Column> {
+    pub fn columns(&self) -> Vec<Column<'_>> {
         let n = self.column_count();
         let mut cols = Vec::with_capacity(n);
         for i in 0..n {
